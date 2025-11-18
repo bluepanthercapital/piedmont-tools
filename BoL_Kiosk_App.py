@@ -1,11 +1,16 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from pathlib import Path
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, Inches
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+
+
+LOGO_PATH = "piedmont_logo.png"
 
 
 # Helper to clean NaN -> ""
@@ -47,18 +52,27 @@ REQUIRED_COLUMNS = [
     "PO for Invoice",
 ]
 
+
+# ---------------- Streamlit UI ----------------
+
 st.set_page_config(page_title="Amazon Locker Sheet Generator", layout="centered")
 
-st.title("Amazon Locker Sheet Generator")
+# Top bar: logo + title
+if Path(LOGO_PATH).exists():
+    col_logo, col_title = st.columns([1, 3])
+    with col_logo:
+        st.image(LOGO_PATH, use_column_width="always")
+    with col_title:
+        st.title("Amazon Locker Sheet Generator")
+else:
+    st.title("Amazon Locker Sheet Generator")
 
 st.write(
     "Upload the Amazon Locker Excel file, select a Locker Name, "
     "and generate a Word document with the property and locker details."
 )
 
-uploaded_file = st.file_uploader(
-    "Upload Excel file (.xlsx)", type=["xlsx"]
-)
+uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
 
 if uploaded_file is not None:
     # Read first sheet by default
@@ -140,17 +154,48 @@ if uploaded_file is not None:
 
         row = matching_rows.iloc[0]
 
-        # ---- Build Word document ----
+        # ---------------- Word document ----------------
         doc = Document()
 
-        # Page margins a bit tighter than default
+        # Page margins
         section = doc.sections[0]
-        section.top_margin = Inches(1)
+        section.top_margin = Inches(1.1)
         section.bottom_margin = Inches(1)
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-        # Title: Locker Name + Kiosk
+        # Header with logo (top-right)
+        if Path(LOGO_PATH).exists():
+            header = section.header
+            header_para = (
+                header.paragraphs[0]
+                if header.paragraphs
+                else header.add_paragraph()
+            )
+            header_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            header_run = header_para.add_run()
+            try:
+                header_run.add_picture(LOGO_PATH, width=Inches(2.5))
+            except Exception:
+                # If anything goes wrong with the image, just skip it
+                pass
+
+        # Footer with small Piedmont line
+        footer = section.footer
+        footer_para = (
+            footer.paragraphs[0]
+            if footer.paragraphs
+            else footer.add_paragraph()
+        )
+        footer_para.text = (
+            "Piedmont Moving Systems • Amazon Locker Operations"
+        )
+        footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in footer_para.runs:
+            run.font.size = Pt(8)
+            run.font.italic = True
+
+        # Title: Locker name + kiosk
         title_para = doc.add_paragraph()
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title_run = title_para.add_run(
@@ -161,19 +206,26 @@ if uploaded_file is not None:
 
         doc.add_paragraph()  # spacer
 
+        # ---- Property Details header ----
+        prop_header = doc.add_paragraph()
+        prop_header_run = prop_header.add_run("Property Details")
+        prop_header_run.bold = True
+        prop_header_run.font.size = Pt(14)
+
+        doc.add_paragraph()  # small spacer
+
         # ---- Table 1: Property block ----
         table1 = doc.add_table(rows=2, cols=6)
         table1.style = "Table Grid"
         table1.autofit = False
 
-        # Reasonable column widths
         col_widths1 = [
-            Inches(2.0),  # Property Name
-            Inches(1.8),  # Store ID
-            Inches(2.2),  # Address
-            Inches(1.3),  # City
-            Inches(0.7),  # St
-            Inches(0.9),  # Zip
+            Inches(2.0),
+            Inches(1.8),
+            Inches(2.2),
+            Inches(1.3),
+            Inches(0.7),
+            Inches(0.9),
         ]
         for col, width in zip(table1.columns, col_widths1):
             col.width = width
@@ -195,15 +247,25 @@ if uploaded_file is not None:
         val_cells[4].text = fmt(row["St"])
         val_cells[5].text = fmt(row["Zip"])
 
-        # Make body text a bit smaller and cleaner
+        # Adjust body font
         for row_cells in table1.rows:
             for cell in row_cells.cells:
                 for paragraph in cell.paragraphs:
                     for run in paragraph.runs:
                         if not run.bold:
                             run.font.size = Pt(11)
+                # vertical center
+                cell.vertical_alignment = 1  # 0=top,1=center,2=bottom
 
         doc.add_paragraph()  # spacer
+
+        # ---- Locker Details header ----
+        lock_header = doc.add_paragraph()
+        lock_header_run = lock_header.add_run("Locker Details")
+        lock_header_run.bold = True
+        lock_header_run.font.size = Pt(14)
+
+        doc.add_paragraph()  # small spacer
 
         # ---- Table 2: Locker and contact block ----
         table2 = doc.add_table(rows=2, cols=8)
@@ -211,14 +273,14 @@ if uploaded_file is not None:
         table2.autofit = False
 
         col_widths2 = [
-            Inches(0.7),  # Size
-            Inches(0.8),  # Gen
-            Inches(1.3),  # Indoor/Outdoor
-            Inches(1.0),  # Config
-            Inches(1.8),  # Locker Name
-            Inches(1.8),  # Contact Name
-            Inches(1.6),  # Phone
-            Inches(1.8),  # PO
+            Inches(0.7),
+            Inches(0.8),
+            Inches(1.3),
+            Inches(1.0),
+            Inches(1.8),
+            Inches(1.8),
+            Inches(1.6),
+            Inches(1.8),
         ]
         for col, width in zip(table2.columns, col_widths2):
             col.width = width
@@ -250,6 +312,7 @@ if uploaded_file is not None:
                     for run in paragraph.runs:
                         if not run.bold:
                             run.font.size = Pt(11)
+                cell.vertical_alignment = 1
 
         # Save to memory buffer
         buffer = BytesIO()
