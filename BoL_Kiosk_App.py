@@ -3,7 +3,9 @@ import pandas as pd
 from io import BytesIO
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt
+from docx.shared import Pt, Inches
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 # Helper to clean NaN -> ""
@@ -13,7 +15,21 @@ def fmt(val):
     return str(val)
 
 
-# Columns we absolutely need (Kiosk handled separately because of naming issues)
+# Helper: shade + bold header row
+def style_header_row(row):
+    for cell in row.cells:
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:fill"), "DDDDDD")  # light grey
+        tc_pr.append(shd)
+
+        for paragraph in cell.paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
+                run.font.size = Pt(11)
+
+
+# Columns we absolutely need (Kiosk handled separately)
 REQUIRED_COLUMNS = [
     "Property Name",
     "Store ID (NSA Unique ID)",
@@ -124,22 +140,43 @@ if uploaded_file is not None:
 
         row = matching_rows.iloc[0]
 
-        # ---- Title block: Locker Name + Kiosk ----
+        # ---- Build Word document ----
         doc = Document()
 
+        # Page margins a bit tighter than default
+        section = doc.sections[0]
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
+
+        # Title: Locker Name + Kiosk
         title_para = doc.add_paragraph()
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title_run = title_para.add_run(
             f"{fmt(row['Locker Name'])}  (Kiosk {fmt(row[kiosk_col])})"
         )
         title_run.bold = True
-        title_run.font.size = Pt(18)
+        title_run.font.size = Pt(24)
 
         doc.add_paragraph()  # spacer
 
         # ---- Table 1: Property block ----
         table1 = doc.add_table(rows=2, cols=6)
-        table1.style = "Table Grid"   # borders
+        table1.style = "Table Grid"
+        table1.autofit = False
+
+        # Reasonable column widths
+        col_widths1 = [
+            Inches(2.0),  # Property Name
+            Inches(1.8),  # Store ID
+            Inches(2.2),  # Address
+            Inches(1.3),  # City
+            Inches(0.7),  # St
+            Inches(0.9),  # Zip
+        ]
+        for col, width in zip(table1.columns, col_widths1):
+            col.width = width
 
         hdr_cells = table1.rows[0].cells
         hdr_cells[0].text = "Property Name"
@@ -148,6 +185,7 @@ if uploaded_file is not None:
         hdr_cells[3].text = "City"
         hdr_cells[4].text = "St"
         hdr_cells[5].text = "Zip"
+        style_header_row(table1.rows[0])
 
         val_cells = table1.rows[1].cells
         val_cells[0].text = fmt(row["Property Name"])
@@ -157,11 +195,33 @@ if uploaded_file is not None:
         val_cells[4].text = fmt(row["St"])
         val_cells[5].text = fmt(row["Zip"])
 
+        # Make body text a bit smaller and cleaner
+        for row_cells in table1.rows:
+            for cell in row_cells.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        if not run.bold:
+                            run.font.size = Pt(11)
+
         doc.add_paragraph()  # spacer
 
         # ---- Table 2: Locker and contact block ----
         table2 = doc.add_table(rows=2, cols=8)
         table2.style = "Table Grid"
+        table2.autofit = False
+
+        col_widths2 = [
+            Inches(0.7),  # Size
+            Inches(0.8),  # Gen
+            Inches(1.3),  # Indoor/Outdoor
+            Inches(1.0),  # Config
+            Inches(1.8),  # Locker Name
+            Inches(1.8),  # Contact Name
+            Inches(1.6),  # Phone
+            Inches(1.8),  # PO
+        ]
+        for col, width in zip(table2.columns, col_widths2):
+            col.width = width
 
         hdr2 = table2.rows[0].cells
         hdr2[0].text = "Size"
@@ -172,6 +232,7 @@ if uploaded_file is not None:
         hdr2[5].text = "Contact Name"
         hdr2[6].text = "Contact Phone #"
         hdr2[7].text = "PO for Invoice"
+        style_header_row(table2.rows[0])
 
         val2 = table2.rows[1].cells
         val2[0].text = fmt(row["Size"])
@@ -182,6 +243,13 @@ if uploaded_file is not None:
         val2[5].text = fmt(row["Contact Name"])
         val2[6].text = fmt(row["Contact Phone #"])
         val2[7].text = fmt(row["PO for Invoice"])
+
+        for row_cells in table2.rows:
+            for cell in row_cells.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        if not run.bold:
+                            run.font.size = Pt(11)
 
         # Save to memory buffer
         buffer = BytesIO()
