@@ -5,12 +5,15 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
+
 # Helper to clean NaN -> ""
 def fmt(val):
     if pd.isna(val):
         return ""
     return str(val)
 
+
+# Columns we absolutely need (Kiosk handled separately because of naming issues)
 REQUIRED_COLUMNS = [
     "Property Name",
     "Store ID (NSA Unique ID)",
@@ -23,7 +26,6 @@ REQUIRED_COLUMNS = [
     "Indoor/ Outdoor",
     "Config",
     "Locker Name",
-    "Kiosk",              # NEW
     "Contact Name",
     "Contact Phone #",
     "PO for Invoice",
@@ -53,12 +55,25 @@ if uploaded_file is not None:
         st.error(f"Error reading Excel file: {e}")
         st.stop()
 
-    # Check that required columns exist
+    # Check that required columns exist (excluding Kiosk for now)
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         st.error(
             "The uploaded file is missing these columns: "
             + ", ".join(missing)
+        )
+        st.stop()
+
+    # Handle Kiosk column which may be named "Kiosk " (with space) or "Kiosk"
+    kiosk_col = None
+    if "Kiosk " in df.columns:
+        kiosk_col = "Kiosk "
+    elif "Kiosk" in df.columns:
+        kiosk_col = "Kiosk"
+    else:
+        st.error(
+            "The uploaded file is missing the 'Kiosk' column "
+            "(expected header 'Kiosk' or 'Kiosk ')."
         )
         st.stop()
 
@@ -82,7 +97,7 @@ if uploaded_file is not None:
     st.subheader("Row preview")
     preview_cols = [
         "Locker Name",
-        "Kiosk",
+        kiosk_col,
         "Property Name",
         "Store ID (NSA Unique ID)",
         "Address",
@@ -111,79 +126,8 @@ if uploaded_file is not None:
 
         row = matching_rows.iloc[0]
 
-        # Build Word document
+        # ---- Title block: Locker Name + Kiosk ----
         doc = Document()
 
-        # ---- Title block: Locker Name + Kiosk ----
         title_para = doc.add_paragraph()
-        title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        title_run = title_para.add_run(
-            f"{fmt(row['Locker Name'])}  (Kiosk {fmt(row['Kiosk'])})"
-        )
-        title_run.bold = True
-        title_run.font.size = Pt(18)
-
-        doc.add_paragraph()  # spacer
-
-        # ---- Table 1: Property block ----
-        table1 = doc.add_table(rows=2, cols=6)
-        table1.style = "Table Grid"   # gives borders
-
-        hdr_cells = table1.rows[0].cells
-        hdr_cells[0].text = "Property Name"
-        hdr_cells[1].text = "Store ID (NSA Unique ID)"
-        hdr_cells[2].text = "Address"
-        hdr_cells[3].text = "City"
-        hdr_cells[4].text = "St"
-        hdr_cells[5].text = "Zip"
-
-        val_cells = table1.rows[1].cells
-        val_cells[0].text = fmt(row["Property Name"])
-        val_cells[1].text = fmt(row["Store ID (NSA Unique ID)"])
-        val_cells[2].text = fmt(row["Address"])
-        val_cells[3].text = fmt(row["City"])
-        val_cells[4].text = fmt(row["St"])
-        val_cells[5].text = fmt(row["Zip"])
-
-        doc.add_paragraph()  # spacer
-
-        # ---- Table 2: Locker and contact block ----
-        table2 = doc.add_table(rows=2, cols=8)
-        table2.style = "Table Grid"
-
-        hdr2 = table2.rows[0].cells
-        hdr2[0].text = "Size"
-        hdr2[1].text = "Gen"
-        hdr2[2].text = "Indoor/ Outdoor"
-        hdr2[3].text = "Config"
-        hdr2[4].text = "Locker Name"
-        hdr2[5].text = "Contact Name"
-        hdr2[6].text = "Contact Phone #"
-        hdr2[7].text = "PO for Invoice"
-
-        val2 = table2.rows[1].cells
-        val2[0].text = fmt(row["Size"])
-        val2[1].text = fmt(row["Gen"])
-        val2[2].text = fmt(row["Indoor/ Outdoor"])
-        val2[3].text = fmt(row["Config"])
-        val2[4].text = fmt(row["Locker Name"])
-        val2[5].text = fmt(row["Contact Name"])
-        val2[6].text = fmt(row["Contact Phone #"])
-        val2[7].text = fmt(row["PO for Invoice"])
-
-        # Save to memory buffer
-        buffer = BytesIO()
-        doc.save(buffer)
-        buffer.seek(0)
-
-        file_name = f"{fmt(row['Locker Name'])}_Kiosk_{fmt(row['Kiosk'])}.docx"
-
-        st.download_button(
-            label="Download Word document",
-            data=buffer,
-            file_name=file_name,
-            mime=(
-                "application/"
-                "vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ),
-        )
+        title_para.alignment = WD_ALIGN_PARAGRAPH.CENT_
